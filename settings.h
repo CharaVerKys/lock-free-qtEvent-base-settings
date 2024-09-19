@@ -63,6 +63,12 @@ class Settings : public QObject
 {
     Q_OBJECT
 public:
+
+    Settings(const Settings&) = delete;
+    Settings(Settings&&) = delete;
+    Settings& operator=(const Settings&) = delete;
+    Settings& operator=(Settings&&) = delete;
+    
     explicit Settings(QObject *parent = nullptr);
     ~Settings();
 
