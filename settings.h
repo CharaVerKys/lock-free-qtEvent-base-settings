@@ -106,7 +106,7 @@ public:
     ModuleLockFreePair getModule2Set();
 
     static id_t getNewId(){
-        static id_t idGen = 0;
+        static std::atomic<uint> idGen = 0;
         return idGen++;
     }
 
