@@ -19,12 +19,13 @@ bool module1::event(QEvent *event)
         std::lock_guard lock(*mutex); // lock when need
         Module2Set* module2 = static_cast<Module2Set*>(pair.setModule); // under mutex lock
         myValue = module2->value2; // under mutex lock
+        EventSettingsChanged* custedEvent = static_cast<EventSettingsChanged*>(event);
         if(myValue < 1000){
-            emit settingsChangeResult(true);
+            emit settingsChangeResult(custedEvent->getId(), true);
         }else{
-            emit settingsChangeResult(false,"module1","value2");
+            emit settingsChangeResult(custedEvent->getId(), false,"module1","value2");
         }
-        std::cout << "end, value is " <<myValue<< std::endl;
+        std::cout << "seted value is " <<myValue<< std::endl;
         return true;
     }
     return QObject::event(event);

@@ -33,8 +33,8 @@ int main(int argc, char *argv[])
         Settings* settings = Settings::getGlobInstance(); // thread safe
         ModuleLockFreePair pair = settings->getModule2Set(); // thread safe
         std::mutex* mutex = pair.mutex; // get mutex
+        Module2Set* module2 = static_cast<Module2Set*>(pair.setModule); // get module
         std::lock_guard lock(*mutex); // lock when need
-        Module2Set* module2 = static_cast<Module2Set*>(pair.setModule); // under mutex lock
         int value = module2->value2; // under mutex lock
         assert(value == 42); // default value
     }

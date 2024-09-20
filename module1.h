@@ -10,7 +10,7 @@ public:
     explicit module1(QObject *parent = nullptr);
 
 signals:
-    void settingsChangeResult(bool success, const char* moduleName = nullptr, const char* paramName = nullptr);
+    void settingsChangeResult(id_t id, bool success, const char* moduleName = nullptr, const char* paramName = nullptr);
 protected:
     bool event(QEvent* event);
 public:

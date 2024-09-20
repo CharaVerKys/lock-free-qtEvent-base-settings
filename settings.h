@@ -13,6 +13,7 @@ class has_settingsChangeResult
 private:
     template<typename U>
     static auto test(int) -> decltype(std::declval<U>().settingsChangeResult(
+                                          std::declval<id_t>(),
                                           std::declval<bool>(),
                                             std::declval<const char*>(),
                                             std::declval<const char*>()
@@ -26,7 +27,7 @@ public:
 };
 // type check
 
-
+struct changeResult;
 class IModuleSettings{
 
 };
@@ -51,7 +52,10 @@ enum ModulesNames{
 class EventSettingsChanged : public QEvent{
 public:
     static const QEvent::Type MyEventType;
-    EventSettingsChanged() : QEvent(MyEventType){}
+    EventSettingsChanged(id_t id) : QEvent(MyEventType), id(id){}
+    id_t getId(){return id;}
+private:
+    id_t id;
 };
 
 struct ModuleLockFreePair{
@@ -101,16 +105,21 @@ public:
     ModuleLockFreePair getModule1Set();
     ModuleLockFreePair getModule2Set();
 
+    static id_t getNewId(){
+        static id_t idGen = 0;
+        return idGen++;
+    }
+
 signals:
-    void settingsChangeResult(bool success, const char* moduleName = nullptr, const char* paramName = nullptr);
+    void settingsChangeResult(id_t id, bool success, const char* moduleName = nullptr, const char* paramName = nullptr);
     // if succes not additional info, otherwise when error send data for message box
 
 public slots:
-    void changeSettings();
+    void changeSettings(uint id);
     // должен отправить сигнал, гарантировать что сигнал не отправится до завершения всех операций и ждать сигнал settingsChangeResult о завершении
 
 private slots:
-    void resultFromObject(bool success, const char* moduleName = nullptr, const char* paramName = nullptr);
+    void resultFromObject(id_t id, bool success, const char* moduleName = nullptr, const char* paramName = nullptr);
 
 private:
     ModuleLockFreePair createReturnSetPair(IModuleSettings* modSet);
@@ -118,9 +127,8 @@ private:
     void saveSettings(IModuleSettings *settings);
 
 private:
-    uint16_t setObjectsRemain = 0;
-    bool success; const char *moduleName; const char *paramName;
-
+    std::map<id_t, uint16_t> transactionObjectsRemain;
+    std::map<id_t, changeResult> transactionResult;
     std::map<ModulesNames, IModuleSettings*> allModules;
     std::mutex* mutex = nullptr;
     std::vector<QObject*> eventSetChangedReceivers;
@@ -130,6 +138,8 @@ private:
 };
 
 
-
+struct changeResult{
+    bool success = true;; const char *moduleName = nullptr; const char *paramName = nullptr;
+};
 
 #endif // SETTINGS_H

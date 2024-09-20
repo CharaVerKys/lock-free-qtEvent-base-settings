@@ -1,6 +1,6 @@
 #include "module2.h"
 #include <settings.h>
-
+#include <iostream>
 senderModule::senderModule(QObject *parent)
     : QObject{parent}
 {
@@ -24,13 +24,16 @@ void senderModule::changeValueInModule2Set()
     module->value2 = 100;
 
 
-    QMetaObject::invokeMethod(Settings::getGlobInstance(),"changeSettings",Qt::QueuedConnection);
+    transId = Settings::getGlobInstance()->getNewId();
+    assert(QMetaObject::invokeMethod(Settings::getGlobInstance(),"changeSettings",Qt::QueuedConnection,Q_ARG(/*id_t*/uint, transId))); //id_t unreg
 }
 
-void senderModule::slot_changeValueInModule2Set(bool success, const char* moduleName, const char* paramName)
+void senderModule::slot_changeValueInModule2Set(id_t id, bool success, const char* moduleName, const char* paramName)
 {
     assert(lockOper);
     lockOper = false;
     assert(success);
+    assert(transId == id);
+    std::cout << "end" << std::endl;
     disconnect(Settings::getGlobInstance(),&Settings::settingsChangeResult,this,&senderModule::slot_changeValueInModule2Set);
 }
