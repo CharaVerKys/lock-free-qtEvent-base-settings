@@ -1,4 +1,4 @@
-#include "settings.h"
+	#include "settings.h"
 #include <QCoreApplication>
 #include <iostream>
 
@@ -27,8 +27,6 @@ Settings *const Settings::getGlobInstance()
 //other thread
 bool Settings::loadSettings()
 {
-    std::lock_guard lock(*mutex);
-
     // dummy code
     allModules.emplace(module1,&set1);
     allModules.emplace(module2,&set2);
@@ -39,6 +37,9 @@ bool Settings::loadSettings()
          read module name -> make module
     }
     */
+    bool loadedOnes = !loaded.exchange(true);
+    assert(loadedOnes);
+
     return true;
 }
 
@@ -57,12 +58,14 @@ ModuleLockFreePair Settings::getModule1Set()
 {
 // access to allModules is read only,                      IF LOAD SETTINGS WAS CALLED
 // Settings::createReturnSetPair copy(read) vals, also thread safe , --//--
+	assert(loaded.load());
     return createReturnSetPair(allModules[module1]);
 }
 
 //other thread
 ModuleLockFreePair Settings::getModule2Set()
 {
+	assert(loaded.load());
     return createReturnSetPair(allModules[module2]);
 }
 // test meta code

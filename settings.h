@@ -135,6 +135,7 @@ private:
 
     Module1Set set1;
     Module2Set set2;
+    std::atomic<bool> loaded = false;
 };
 
 
