@@ -14,11 +14,15 @@ void senderModule::changeValueInModule2Set()
     connect(Settings::getGlobInstance(),&Settings::settingsChangeResult,this,&senderModule::slot_changeValueInModule2Set, Qt::QueuedConnection);
     Module2Set* module = static_cast<Module2Set*>(Settings::getGlobInstance()->getModule2Set().setModule);
 
-    // dead lock, cus getModule2Set have same mutex
-    //Settings::getGlobInstance()->getModule2Set().mutex->lock();
-    //module->value2 = 100;
-    //Settings::getGlobInstance()->getModule2Set().mutex->unlock();
 
+//now this code work
+    //dead lock, cus getModule2Set have same mutex
+    Settings::getGlobInstance()->getModule2Set().mutex->lock();
+    module->value2 = 10;
+    Settings::getGlobInstance()->getModule2Set().mutex->unlock();
+//now this code work
+
+std::cout << module->value2 << std::endl;
     //only way is
     std::lock_guard(*Settings::getGlobInstance()->getModule2Set().mutex);
     module->value2 = 100;

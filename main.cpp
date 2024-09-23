@@ -25,8 +25,8 @@ int main(int argc, char *argv[])
         bool value;
         std::mutex* mutex = Settings::getGlobInstance()->getModule1Set().mutex;
         std::lock_guard lock(*mutex);
-        //value = static_cast<Module1Set*>(Settings::getGlobInstance()->getModule1Set().setModule)->value1;// dead lock here, cannot use after ->lock()
-        //assert(value); //default value false
+        value = static_cast<Module1Set*>(Settings::getGlobInstance()->getModule1Set().setModule)->value1;
+        assert(value); //default value false
     }
 
     {

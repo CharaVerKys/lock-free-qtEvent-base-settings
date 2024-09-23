@@ -55,14 +55,14 @@ ModuleLockFreePair Settings::createReturnSetPair(IModuleSettings *modSet)
 //other thread
 ModuleLockFreePair Settings::getModule1Set()
 {
-    std::lock_guard lock(*mutex);
+// access to allModules is read only,                      IF LOAD SETTINGS WAS CALLED
+// Settings::createReturnSetPair copy(read) vals, also thread safe , --//--
     return createReturnSetPair(allModules[module1]);
 }
 
 //other thread
 ModuleLockFreePair Settings::getModule2Set()
 {
-    std::lock_guard lock(*mutex);
     return createReturnSetPair(allModules[module2]);
 }
 // test meta code
