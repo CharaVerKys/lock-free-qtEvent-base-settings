@@ -22,5 +22,7 @@ add_executable(settings_test
   module1.h
   settings.cpp
   settings.h
+  imodulesettings.h
+  defines.h
 )
 target_link_libraries(settings_test Qt${QT_VERSION_MAJOR}::Core)

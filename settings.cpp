@@ -1,50 +1,85 @@
-	#include "settings.h"
+#include "settings.h"
 #include <QCoreApplication>
-#include <iostream>
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
 
-const QEvent::Type EventSettingsChanged::MyEventType = static_cast<QEvent::Type>(QEvent::registerEventType());
+const QEvent::Type EventSettingsChanged::settingsChanged = static_cast<QEvent::Type>(QEvent::registerEventType());
 
-Settings::Settings(QObject *parent)
-    : QObject{parent}
+Settings::Settings()
+    : QObject{nullptr}
     , mutex(new std::mutex())
-{}
+{
+    checkThread(&mainThreadID);
+}
 
 Settings::~Settings()
 {
+    checkThread(&mainThreadID);
     assert(mutex);
     delete mutex;
     mutex = nullptr;
     saveAllSettings();
 }
 
-//other thread
-Settings *const Settings::getGlobInstance()
+Settings* Settings::getGlobInstance()
 {
-    static Settings settings; // удивительно как просто, вот тот случай когда нужно использовать статик в функции
+    static Settings settings;
     return &settings;
 }
 
-//other thread
 bool Settings::loadSettings()
 {
-    // dummy code
-    allModules.emplace(module1,&set1);
-    allModules.emplace(module2,&set2);
-    // dummy code
+    checkThread(&mainThreadID);
+    assert(assertnumOfModules == helperInitSet.size());
 
-    /*
-    for(each file in dir){
-         read module name -> make module
+    auto opt = getJsonFromSingleFile();
+    if(not opt.has_value()){
+        throw std::runtime_error("not opt.has_value()");
     }
-    */
+    const QJsonObject json = opt.value();
+    //assert(util::settings::countFirstLevelJsonObjects(json) == assertnumOfModules);
+
+    for(auto& module :helperInitSet){
+        const char* objectName = module->getModuleName();
+        assert(objectName);
+
+        bool moduleSetRes;
+        if (json.contains(objectName)) {
+            QJsonValue jsonValue = json[objectName];
+            QJsonDocument jsonDoc(jsonValue.toObject());
+            QString jsonString = jsonDoc.toJson(QJsonDocument::Compact);
+            auto byteArray = jsonString.toUtf8();
+            const char* jsonStr = byteArray.constData();
+            moduleSetRes = module->setValuesOnJsonString(jsonStr); // принимает const char*
+        }else{
+            moduleSetRes = module->setValuesOnJsonString("promb_setOnDefault"); //immediately change on variant if logic extending
+            //variant warn or try set on default, but default in code may be not valid
+            //throw;
+        }
+
+        if(moduleSetRes){
+            qInfo() << QString("UserMsg Success load %1").arg(objectName);
+        }else{
+            qWarning() << QString("UserMsg Fail load %1").arg(objectName);
+        }
+
+        allModules.emplace(module->getModuleEnum(), module);
+    }
+
     bool loadedOnes = !loaded.exchange(true);
     assert(loadedOnes);
 
     return true;
 }
 
+ModuleLockFreePair Settings::getIModuleSettings()
+{
+    assert(loaded.load());
+    return createReturnSetPair(allModules[SettingsModulesNames::NotSetted]);
+}
 
-//other thread
+
 ModuleLockFreePair Settings::createReturnSetPair(IModuleSettings *modSet)
 {
     ModuleLockFreePair pair;
@@ -53,40 +88,9 @@ ModuleLockFreePair Settings::createReturnSetPair(IModuleSettings *modSet)
     return pair;
 }
 
-//other thread
-ModuleLockFreePair Settings::getModule1Set()
-{
-// access to allModules is read only,                      IF LOAD SETTINGS WAS CALLED
-// Settings::createReturnSetPair copy(read) vals, also thread safe , --//--
-	assert(loaded.load());
-    return createReturnSetPair(allModules[module1]);
-}
-
-//other thread
-ModuleLockFreePair Settings::getModule2Set()
-{
-	assert(loaded.load());
-    return createReturnSetPair(allModules[module2]);
-}
-// test meta code
-/*
-template<typename Map, typename Arg>
-auto construct_from_value(const Map& map, const Arg& value) {
-    using ValueType = typename std::decay_t<decltype(std::declval<Map>().begin()->second)>;
-    return ValueType(value); // Вызываем конструктор второго типа с переданным значением
-}
-
-template<typename Map>
-auto construct_from_default(const Map& map) {
-    using ValueType = typename std::decay_t<decltype(std::declval<Map>().begin()->second)>;
-    return ValueType(); // Конструктор по умолчанию
-}*/
-
-
-
-//settings thread
 void Settings::changeSettings(uint id)
 {
+    checkThread(&mainThreadID);
     assert(transactionResult.find(id) == transactionResult.end());
     transactionResult.emplace(id, changeResult() /* construct_from_default(transactionResult)*/);
     assert(transactionResult.at(id).success == true);
@@ -97,11 +101,14 @@ void Settings::changeSettings(uint id)
     for(auto object : eventSetChangedReceivers){
         QCoreApplication::postEvent(object, new EventSettingsChanged(id));
     }
+    if(eventSetChangedReceivers.empty()){
+        emit settingsChangeResult(id, true);
+    }
 }
 
-//settings thread
 void Settings::resultFromObject(id_t id, bool success, const char *moduleName, const char *paramName)
 {
+    checkThread(&mainThreadID);
     if(!success){ // may override if multiple error, not critical issue
         transactionResult.at(id).moduleName = moduleName;
         transactionResult.at(id).paramName = paramName;
@@ -119,18 +126,81 @@ void Settings::resultFromObject(id_t id, bool success, const char *moduleName, c
         transactionObjectsRemain.erase(transactionObjectsRemain.at(id));
     }
 }
-//settings thread
+
 void Settings::saveAllSettings()
 {
-    // end of life only
+    assert(not mutex); // only on exit
+    checkThread(&mainThreadID);
+    QJsonObject allSettingsJson;
     for(auto & module : allModules){
-        saveSettings(module.second);
+        assert(module.first != SettingsModulesNames::NotSetted);
+        QJsonObject moduleJson = module.second->getJson();
+        allSettingsJson[module.second->getModuleName()] = moduleJson;
+        assert(moduleJson != QJsonObject());
+        //saveSettings(module.second); if can
+    }
+    QFile fileToSave("your/path/to.json");
+    if (fileToSave.open(QIODevice::WriteOnly)) {
+        QJsonDocument doc(allSettingsJson); // Convert the QJsonObject to a QJsonDocument
+        fileToSave.write(doc.toJson()); // Write the JSON data to the file
+        fileToSave.close(); // Close the file
+        qInfo() << "UserMsg Settings saved to file.";
+    } else {
+        qCritical()/*Warning?*/ << "UserMsg Failed to open file for writing.";
     }
 }
-//settings thread
+
 void Settings::saveSettings(IModuleSettings* settings)
 {
-    // load to file
-    // settings->saveParams
-    std::cout << "settings saved" << std::endl;
+    (void)settings;
+    assert("not allowed in current variant" && false);
+    // settings->writeToFile();
+}
+
+std::optional<QJsonObject> Settings::getJsonFromSingleFile()
+{
+    checkThread(&mainThreadID);
+    QString filePath = "your/path/to.json";
+    QByteArray jsonData;
+
+    try {
+
+       QFile file(filePath);
+
+       if (!file.exists()) {
+           qCritical() << (QString("UserMsg File %1 notExist").arg(filePath));
+           return std::nullopt;
+       }
+
+       if (!file.open(QIODevice::ReadOnly)) {
+           qCritical() << (QString("UserMsg Fail to open file %1").arg(filePath));
+           return std::nullopt;
+       }
+       jsonData = file.readAll();
+       file.close();
+    }
+    catch(std::exception &e)
+    {
+       qCritical() << QString("UserMsg File %1 Exception: %2").arg(filePath).arg(e.what());
+       return std::nullopt;
+    }
+
+    QJsonObject settingsObject;
+    try{
+       QJsonDocument doc = QJsonDocument::fromJson(jsonData);
+
+       if(!doc.isEmpty() && !doc.isNull())
+       {
+           settingsObject = doc.object();
+       }
+       else
+       {
+           qCritical() << (QString("UserMsg Fail convert %1 to json").arg(filePath));
+           return std::nullopt;
+       }
+    } catch (const std::exception & e) {
+         qWarning() << (QString("UserMsg Exception: %1").arg(e.what()));
+         return std::nullopt;
+    }
+    return settingsObject;
 }
