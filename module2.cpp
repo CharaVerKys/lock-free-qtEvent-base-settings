@@ -23,4 +23,7 @@ void senderModule::slot_changeValueInModule2Set(id_t id, bool success, const cha
     lockOper = false;
     assert(success);
     disconnect(Settings::getGlobInstance(),&Settings::settingsChangeResult,this,&senderModule::slot_changeValueInModule2Set);
+
+    // module->flush(); // if you want to write changes to file
+    // prefer do so in different thread, with mutex
 }

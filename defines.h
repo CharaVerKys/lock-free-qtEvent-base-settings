@@ -3,8 +3,7 @@
 
 enum class SettingsModulesNames{
     NotSetted = 0,
-    SettingsModule1,
-    SettingsModule2
+    RandomName
 };
 
 //your checkThread, if want

@@ -7,6 +7,22 @@
 #include "defines.h"
 #include "imodulesettings.h"
 
+
+/*
+## guideline:
+1. init settings, noting special
+2. settings-setter (aka setter) want to change settings
+3. he remember old setting params and push them to module and emit signal change settings
+4. setter blocking next settings-send event (other-way should support multiple settings events) and wait for answer
+5. Settings:: posting events to settings-receivers (aka receivers)
+6. receivers validate input settings and if pass returns true, or if validate fails return false + module name and reason
+7. setter receive success and (if he want) 'flush()' module to write settings to file
+7.5 if received fail then revers settings and emit changeSettings again
+*/
+
+
+
+
 // type check
 template<typename T>
 class has_settingsChangeResult
@@ -33,6 +49,7 @@ struct changeResult;
 class EventSettingsChanged : public QEvent{
 public:
     static const QEvent::Type settingsChanged;
+    // cppcheck-suppress noExplicitConstructor
     EventSettingsChanged(id_t id) : QEvent(settingsChanged), id(id){}
     id_t getId(){return id;}
 private:
@@ -73,12 +90,12 @@ public:
     std::enable_if_t<!has_settingsChangeResult<QObject_typename>::value, void>
     registerObjectAsSettingsChangedEventHandler(QObject_typename *object)
     {
-        (void*)object;
+        (void)object;
         static_assert(has_settingsChangeResult<QObject_typename>::value, "Object does not have the required signal: settingsChangeResult");
     }
 ////////////////////////////
 
-    ModuleLockFreePair getIModuleSettings();
+    ModuleLockFreePair getRandomModuleSettings();
 
     static id_t getNewId(){
         static std::atomic<uint> idGen = 0;
@@ -96,11 +113,10 @@ private slots:
 
 private:
     Settings();
-    ModuleLockFreePair createReturnSetPair(IModuleSettings* modSet);
-    void saveAllSettings();
-    void saveSettings(IModuleSettings *settings);
-    QString getSettingsVariant(bool forSave);
-    std::optional<QJsonObject> getJsonFromSingleFile();
+    ModuleLockFreePair createReturnSetPair(IModuleSettings* modSet) noexcept;
+    void setPathsForSettings() noexcept;
+    std::string getSettingsVariant(bool forSave, const std::string& moduleName) noexcept;
+    void initHolderSetModules() noexcept;
 
 private:
     std::map<id_t, uint16_t> transactionObjectsRemain;
@@ -110,12 +126,8 @@ private:
     std::vector<QObject*> eventSetChangedReceivers;
     std::atomic<bool> loaded = false;
 
-    //modules
-    IModuleSettings module;
-
-    const uint8_t assertnumOfModules = 1;
-    std::vector<IModuleSettings*> helperInitSet{&module};
-
+    #define numOfModules 9
+    std::array<std::unique_ptr<IModuleSettings>, numOfModules> holderSetModules;
 }; // end of class Settings
 
 struct changeResult{

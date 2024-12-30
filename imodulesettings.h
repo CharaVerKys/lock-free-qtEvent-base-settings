@@ -1,10 +1,8 @@
-#ifndef IMODULESETTINGS_H
-#define IMODULESETTINGS_H
+#ifndef IModuleSettings_H
+#define IModuleSettings_H
 
-#include "defines.h"
-#include <assert.h>
-#include <fstream>
-class QJsonObject;
+#include <defines.h>
+#include <qfile.h>
 
 class IModuleSettings
 {
@@ -14,14 +12,16 @@ public:
     const char* getModuleName()const {assert(moduleName); return moduleName;}
     SettingsModulesNames getModuleEnum()const {assert(moduleEnum != SettingsModulesNames::NotSetted); return moduleEnum;}
 
-    virtual bool readFromFile(std::ifstream& stream) = 0;
-    virtual bool writeToFile(std::ofstream& stream) const = 0;
+    virtual bool readFromFile(QFile& stream);
+    void writeToFile(const std::string& path); // actually do nothing, only set target path
     virtual QJsonObject getJson() const = 0;
     virtual bool setValuesOnJsonString(const char* jsonStr) = 0;
+    virtual bool flush() const;
 
 protected:
     const char* moduleName = nullptr;
     SettingsModulesNames moduleEnum = SettingsModulesNames::NotSetted;
+    std::string path;
 };
 
-#endif // IMODULESETTINGS_H
+#endif // IModuleSettings_H

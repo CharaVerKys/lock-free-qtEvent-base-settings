@@ -1,16 +1,27 @@
 #include "settings.h"
 #include <QCoreApplication>
-#include <QFile>
 #include <QJsonDocument>
-#include <QJsonObject>
+#include <QStandardPaths>
+#include <qdir.h>
+
+#include <randomemodulesettings.h>
 
 const QEvent::Type EventSettingsChanged::settingsChanged = static_cast<QEvent::Type>(QEvent::registerEventType());
+
+constexpr uint64_t operator""_id(unsigned long long value) {
+    return value - 1;
+}
+
+void Settings::initHolderSetModules()noexcept{
+    holderSetModules[1_id] = std::make_unique<RandomModuleSettings>(RandomModuleSettings());
+}
 
 Settings::Settings()
     : QObject{nullptr}
     , mutex(new std::mutex())
 {
     checkThread(&mainThreadID);
+    initHolderSetModules();
 }
 
 Settings::~Settings()
@@ -19,7 +30,7 @@ Settings::~Settings()
     assert(mutex);
     delete mutex;
     mutex = nullptr;
-    saveAllSettings();
+    for(auto&[key,module] : allModules){module->flush();}
 }
 
 Settings* Settings::getGlobInstance()
@@ -31,56 +42,45 @@ Settings* Settings::getGlobInstance()
 bool Settings::loadSettings()
 {
     checkThread(&mainThreadID);
-    assert(assertnumOfModules == helperInitSet.size());
-
-    auto opt = getJsonFromSingleFile();
-    if(not opt.has_value()){
-        throw std::runtime_error("not opt.has_value()");
-    }
-    const QJsonObject json = opt.value();
-    //assert(util::settings::countFirstLevelJsonObjects(json) == assertnumOfModules);
-
-    for(auto& module :helperInitSet){
-        const char* objectName = module->getModuleName();
-        assert(objectName);
-
-        bool moduleSetRes;
-        if (json.contains(objectName)) {
-            QJsonValue jsonValue = json[objectName];
-            QJsonDocument jsonDoc(jsonValue.toObject());
-            QString jsonString = jsonDoc.toJson(QJsonDocument::Compact);
-            auto byteArray = jsonString.toUtf8();
-            const char* jsonStr = byteArray.constData();
-            moduleSetRes = module->setValuesOnJsonString(jsonStr); // принимает const char*
-        }else{
-            moduleSetRes = module->setValuesOnJsonString("promb_setOnDefault"); //immediately change on variant if logic extending
-            //variant warn or try set on default, but default in code may be not valid
-            //throw;
+    for(auto& uptr :holderSetModules){
+        IModuleSettings* module = uptr.get();
+        std::string path = getSettingsVariant(false,std::string(module->getModuleName()));
+        QFile file(path.c_str());
+        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            switch (file.error()) {
+                case QFileDevice::OpenError:
+                    qCritical() << (QString("UserMsg Файла %1 не существует").arg(file.fileName()));
+                    break;
+                case QFileDevice::PermissionsError:
+                    qCritical() << (QString("UserMsg Не могу открыть файл %1 для чтения настроек: нет доступа")
+                                    .arg(file.fileName()));
+                    break;
+                default:
+                    qCritical() << (QString("UserMsg Не могу открыть файл %1 для чтения настроек: неизвестная ошибка")
+                                    .arg(file.fileName()));
+            }
         }
-
-        if(moduleSetRes){
-            qInfo() << QString("UserMsg Success load %1").arg(objectName);
-        }else{
-            qWarning() << QString("UserMsg Fail load %1").arg(objectName);
-        }
+        module->readFromFile(file);
+        file.close();
+        assert(file.atEnd());
 
         allModules.emplace(module->getModuleEnum(), module);
     }
+    setPathsForSettings();
 
-    bool loadedOnes = !loaded.exchange(true);
+    [[maybe_unused]] bool loadedOnes = !loaded.exchange(true);
     assert(loadedOnes);
 
     return true;
 }
 
-ModuleLockFreePair Settings::getIModuleSettings()
+ModuleLockFreePair Settings::getRandomModuleSettings()
 {
     assert(loaded.load());
-    return createReturnSetPair(allModules[SettingsModulesNames::NotSetted]);
+    return createReturnSetPair(allModules[SettingsModulesNames::RandomName]);
 }
 
-
-ModuleLockFreePair Settings::createReturnSetPair(IModuleSettings *modSet)
+ModuleLockFreePair Settings::createReturnSetPair(IModuleSettings *modSet) noexcept
 {
     ModuleLockFreePair pair;
     pair.mutex = mutex;
@@ -119,6 +119,7 @@ void Settings::resultFromObject(id_t id, bool success, const char *moduleName, c
     if(transactionObjectsRemain.at(id) == 0){
         //saveSettings();
         if(transactionResult.at(id).success){
+            // cppcheck-suppress [uselessAssignmentPtrArg,unreadVariable]
             moduleName = paramName = nullptr;
         }
         emit settingsChangeResult(id, transactionResult.at(id).success, transactionResult.at(id).moduleName, transactionResult.at(id).paramName);
@@ -127,80 +128,34 @@ void Settings::resultFromObject(id_t id, bool success, const char *moduleName, c
     }
 }
 
-void Settings::saveAllSettings()
+void Settings::setPathsForSettings() noexcept
 {
-    assert(not mutex); // only on exit
     checkThread(&mainThreadID);
-    QJsonObject allSettingsJson;
-    for(auto & module : allModules){
-        assert(module.first != SettingsModulesNames::NotSetted);
-        QJsonObject moduleJson = module.second->getJson();
-        allSettingsJson[module.second->getModuleName()] = moduleJson;
-        assert(moduleJson != QJsonObject());
-        //saveSettings(module.second); if can
-    }
-    QFile fileToSave("your/path/to.json");
-    if (fileToSave.open(QIODevice::WriteOnly)) {
-        QJsonDocument doc(allSettingsJson); // Convert the QJsonObject to a QJsonDocument
-        fileToSave.write(doc.toJson()); // Write the JSON data to the file
-        fileToSave.close(); // Close the file
-        qInfo() << "UserMsg Settings saved to file.";
-    } else {
-        qCritical()/*Warning?*/ << "UserMsg Failed to open file for writing.";
+    for(auto& module : allModules){
+        assert(module.first not_eq SettingsModulesNames::NotSetted);
+        std::string path = getSettingsVariant(true,std::string(module.second->getModuleName()));
+        module.second->writeToFile(path);
     }
 }
 
-void Settings::saveSettings(IModuleSettings* settings)
-{
-    (void)settings;
-    assert("not allowed in current variant" && false);
-    // settings->writeToFile();
-}
-
-std::optional<QJsonObject> Settings::getJsonFromSingleFile()
+std::string Settings::getSettingsVariant(bool forSave, const std::string& moduleName) noexcept
 {
     checkThread(&mainThreadID);
-    QString filePath = "your/path/to.json";
-    QByteArray jsonData;
+    std::string path = QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation).toStdString();
+    std::string currentPath = path +"/"+ "settings" +"/"+ (moduleName + ".json");
 
-    try {
-
-       QFile file(filePath);
-
-       if (!file.exists()) {
-           qCritical() << (QString("UserMsg File %1 notExist").arg(filePath));
-           return std::nullopt;
-       }
-
-       if (!file.open(QIODevice::ReadOnly)) {
-           qCritical() << (QString("UserMsg Fail to open file %1").arg(filePath));
-           return std::nullopt;
-       }
-       jsonData = file.readAll();
-       file.close();
+    if(not forSave){
+        std::string defpath = std::string(":/settings") +"/"+ (moduleName + ".json");
+        return QFileInfo::exists(currentPath.c_str()) ? currentPath : defpath;
     }
-    catch(std::exception &e)
+    QDir cd((path + "/settings").c_str());
+    if(!cd.exists())
     {
-       qCritical() << QString("UserMsg File %1 Exception: %2").arg(filePath).arg(e.what());
-       return std::nullopt;
+        if(cd.mkpath(".")){
+            qInfo () << (QString("Создана директория для файла настроек %1").arg(currentPath.c_str()));
+        }else{
+            qCritical() << (QString("UserMsg Не удалось создать директорию для файла настроек %1").arg(currentPath.c_str()));
+        }
     }
-
-    QJsonObject settingsObject;
-    try{
-       QJsonDocument doc = QJsonDocument::fromJson(jsonData);
-
-       if(!doc.isEmpty() && !doc.isNull())
-       {
-           settingsObject = doc.object();
-       }
-       else
-       {
-           qCritical() << (QString("UserMsg Fail convert %1 to json").arg(filePath));
-           return std::nullopt;
-       }
-    } catch (const std::exception & e) {
-         qWarning() << (QString("UserMsg Exception: %1").arg(e.what()));
-         return std::nullopt;
-    }
-    return settingsObject;
+    return currentPath;
 }
