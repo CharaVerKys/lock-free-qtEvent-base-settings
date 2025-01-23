@@ -123,8 +123,8 @@ void Settings::resultFromObject(id_t id, bool success, const char *moduleName, c
             moduleName = paramName = nullptr;
         }
         emit settingsChangeResult(id, transactionResult.at(id).success, transactionResult.at(id).moduleName, transactionResult.at(id).paramName);
-        transactionResult.erase(transactionObjectsRemain.at(id));
-        transactionObjectsRemain.erase(transactionObjectsRemain.at(id));
+        transactionResult.erase(transactionResult.find(id));
+        transactionObjectsRemain.erase(transactionObjectsRemain.find(id));
     }
 }
 
